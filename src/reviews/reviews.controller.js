@@ -1,75 +1,53 @@
-const reviewsService = require("./reviews.service");
+const service = require("./reviews.service")
+const asyncErrorBoundary = require("../errors/asyncErrorBoundary")
 
-const VALID_PROPERTIES = [
-  "content",
-  "score"
-];
+// Validation functions
 
-function hasOnlyValidProperties(req, res, next) {
-  const { data = {} } = req.body;
 
-  const invalidFields = Object.keys(data).filter(
-    (field) => !VALID_PROPERTIES.includes(field)
-  );
-  if (invalidFields.length) {
-    return next({
-      status: 400,
-      message: `Invalid field(s): ${invalidFields.join(", ")}`,
-    });
-  }
-  next();
-}
-
-async function create(req, res, next) {
-  const data = await reviewsService.create(req.body.data);
-  res.status(201).json({ data });
-}
+// Checks that a review exists
 
 async function reviewExists(req, res, next) {
-  const review = await reviewsService.read(req.params.reviewId);
-  if (review) {
-    res.locals.review = review;
-    return next();
-  }
-  next({ status: 404, message: "Review cannot be found." });
+
+    const review = await service.read(req.params.reviewId)
+
+    if (review) {
+        res.locals.review = review;
+        return next();
+    }
+    next({ status: 404, message: "Review cannot be found." })
+
 }
 
-async function update(req, res) {
-    const { reviewId } = req.params;
-    const { content, score } = req.body;
+//--------------------------------------------------------------//
 
-    // Prepare the updated review
+// Function to update a review, then respond with the updated review
+// Adds the critic information with the review
+
+async function update(req, res, next) {
     const updatedReview = {
-    ...res.locals.review,
-    ...req.body.data,
-    review_id: res.locals.review.review_id,
-  };
+        ...req.body.data,
+        review_id: res.locals.review.review_id
+    }
 
-    // Update the review
-    const updated = await reviewsService.update(updatedReview);
+    await service.update(updatedReview)
+    const review = await service.read(updatedReview.review_id)
 
-    // Fetch the critic details
-    const critic = await reviewsService.readCritic(updatedReview.review_id);
 
-    // Include critic details in the response
-
-    res.json({ data: critic });
+    res.json({ data: review })
 }
 
+// Function to delete a review 
 
-async function destroy(req, res) {
-  const { review } = res.locals;
-  await reviewsService.delete(review.review_id);
-  res.sendStatus(204);
+function destroy(req, res, next) {
+
+    service.destroy(res.locals.review.review_id)
+        .then(() => res.sendStatus(204))
+        .catch(next)
+
 }
 
-async function read(req, res) {
-    res.json(({ data: res.locals.review }));
-}
 
 module.exports = {
-  create,
-  read: [reviewExists, read],
-  update: [hasOnlyValidProperties, reviewExists, update],
-  delete: [reviewExists, destroy],
-};
+    update: [asyncErrorBoundary(reviewExists), asyncErrorBoundary(update)],
+    delete: [asyncErrorBoundary(reviewExists), destroy]
+}
